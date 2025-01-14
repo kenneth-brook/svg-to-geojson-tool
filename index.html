@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG to GeoJSON Converter</title>
+</head>
+<body>
+    <h1>SVG to GeoJSON Converter</h1>
+    <textarea id="svgInput" rows="10" cols="80" placeholder="Paste your SVG path data here..."></textarea>
+    <br>
+    <button id="convertBtn">Convert to GeoJSON</button>
+    <pre id="output" style="background: #f4f4f4; padding: 10px; border: 1px solid #ccc; overflow-x: auto;"></pre>
+
+    <script>
+        document.getElementById('convertBtn').addEventListener('click', () => {
+            const svgPathData = document.getElementById('svgInput').value.trim();
+
+            // Verify if input is valid
+            if (!svgPathData) {
+                document.getElementById('output').textContent = "Please provide SVG path data.";
+                return;
+            }
+
+            // Parse the path data
+            const coords = [];
+            const pathCommands = svgPathData.match(/[MLZ][^MLZ]*/gi);
+
+            if (!pathCommands) {
+                document.getElementById('output').textContent = "Invalid SVG path data.";
+                return;
+            }
+
+            // Process commands (M: move to, L: line to, Z: close path)
+            pathCommands.forEach(command => {
+                const type = command[0];
+                const points = command.slice(1).trim().split(/\s+/).map(Number);
+
+                if (type === 'M' || type === 'L') {
+                    for (let i = 0; i < points.length; i += 2) {
+                        const x = points[i];
+                        const y = points[i + 1];
+                        if (!isNaN(x) && !isNaN(y)) {
+                            coords.push([x, y]);
+                        }
+                    }
+                } else if (type === 'Z') {
+                    // Close path
+                    if (coords.length > 0) {
+                        coords.push([...coords[0]]);
+                    }
+                }
+            });
+
+            if (coords.length === 0) {
+                document.getElementById('output').textContent = "No valid coordinates found in SVG path.";
+                return;
+            }
+
+            // Map extent and dimensions
+            const xmin = -3.3938403394018404E7, ymin = -2.1018670283795536E7;
+            const xmax = 3.3938403394018404E7, ymax = 2.1018670283795446E7;
+            const mapWidth = 2048, mapHeight = 1079;
+
+            const scaleX = (xmax - xmin) / mapWidth;
+            const scaleY = (ymax - ymin) / mapHeight;
+
+            // Earth's radius for Mercator projection
+            const R = 6378137;
+
+            // Convert SVG coordinates to geographic coordinates
+            const geoCoords = coords.map(([x, y]) => {
+                const xMerc = xmin + x * scaleX;
+                const yMerc = ymax - y * scaleY;
+
+                // Convert to longitude and latitude
+                const lon = xMerc / R * (180 / Math.PI);
+                const lat = Math.atan(Math.sinh(yMerc / R)) * (180 / Math.PI);
+
+                // Ensure values are valid
+                if (!isNaN(lon) && !isNaN(lat) && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
+                    return [lon, lat];
+                }
+                return null;
+            }).filter(coord => coord !== null);
+
+            if (geoCoords.length === 0) {
+                document.getElementById('output').textContent = "Conversion failed. Check your SVG path data or scaling logic.";
+                return;
+            }
+
+            // Create GeoJSON
+            const geojson = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        geometry: {
+                            type: "Polygon",
+                            coordinates: [geoCoords]
+                        },
+                        properties: {
+                            fill: "rgb(255, 0, 0)",
+                            "fill-opacity": 1
+                        }
+                    }
+                ]
+            };
+
+            // Output the GeoJSON
+            document.getElementById('output').textContent = JSON.stringify(geojson, null, 2);
+        });
+    </script>
+</body>
+</html>
